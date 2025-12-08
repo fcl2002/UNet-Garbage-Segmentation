@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Démo – Modèle d'image</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, hwb(225 13% 42%), #48aba1);
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .center-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      width: 100%;
+      max-width: 1200px;
+    }
+
+    .page-title {
+      font-size: 32px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+      margin: 0;
+      padding: 0;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 1200px;
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 24px 28px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.15);
+      display: flex;
+      gap: 24px;
+    }
+
+    .column {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+
+    }
+
+    .column-2 {
+      flex: 1;
+      display: flex;
+      padding-top: 20px;
+      flex-direction: column;
+    }
+
+    h2 {
+      margin: 0 0 12px;
+      font-size: 24px;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 20px;
+      padding: 10px 0 20px 0;
+      margin-bottom: 10px;
+    }
+
+    .dropzone {
+      position: relative;
+      border-radius: 18px;
+      background: #f7f7fb;
+      border: 2px dashed #d0d0e0;
+      flex: 1;
+      min-height: 260px;
+      max-height: 300px;
+      display: flex;
+      flex-direction: column;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.1s;
+    }
+
+    .dropzone-header {
+      z-index: 2;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      width: 100%;
+    }
+
+    .dropzone-inner {
+      text-align: center;
+      max-width: 420px;
+    }
+
+    .dropzone-text {
+      font-size: 20px;
+      font-weight: 500;
+    }
+
+    .dropzone-preview {
+      border-radius: 14px;
+      overflow: hidden;
+      background: #000;
+      display: none;
+      height: 400px;
+      max-height: 400px;
+    }
+
+    /* Imagem sempre cobre a caixa, centralizada */
+    .dropzone-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center center;
+      display: block;
+    }
+
+    .dropzone.has-image .dropzone-header {
+      display: none;
+    }
+
+    /* Quando tiver imagem, mostra o botão */
+    .dropzone.has-image {
+      display: inline-flex;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 20px;
+      border-radius: 999px;
+      border: none;
+      background: #111827;
+      color: #fff;
+      font-size: 20px;
+      font-weight: 500;
+      cursor: pointer;
+      margin: 20px 0;
+    }
+
+    .btn span {
+      margin-left: 6px;
+    }
+
+    .result-card {
+      flex: 1;
+      border-radius: 18px;
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      margin-top: 10px;
+    }
+
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .result-header h3 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .result-status {
+      font-size: 12px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: #111827;
+      color: #a5b4fc;
+    }
+
+    .result-image {
+      margin-top: 8px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #020617;
+      max-height: 360px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .result-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+    }
+
+
+    pre {
+      margin: 0;
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .hint {
+      font-size: 16px;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+
+    .page-title {
+      text-align: center;
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 30px;
+      margin-top: 10px;
+      color: #ffffff;
+      /* fica branco por causa do fundo gradiente */
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+
+    @media (max-width: 800px) {
+      .app {
+        flex-direction: column;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="center-wrapper">
+    <h1 class="page-title"> Analyse d’Images avec IA</h1>
+
+    <div class="app">
+      <!-- Coluna esquerda: imagem -->
+      <div class="column">
+        <h2>Image</h2>
+        <div class="subtitle">
+          Collez une image ou importez un fichier .jpg ou .png
+        </div>
+
+        <div class="dropzone" id="dropzone">
+          <div class="dropzone-header">
+            <div class="dropzone-inner">
+              <div class="dropzone-text">
+                Cliquez pour sélectionner un fichier ou collez une image depuis le presse-papier.
+              </div>
+              <button class="btn" type="button" id="uploadButton">
+                📁 <span>Choisir un fichier</span>
+              </button>
+              <div class="hint">
+                Astuce&nbsp;: copiez une image puis appuyez sur <strong>Ctrl+V</strong> ici.
+              </div>
+            </div>
+          </div>
+
+          <!-- preview dentro da própria dropzone -->
+          <div class="dropzone-preview" id="dropzonePreview">
+            <img id="previewImage" src="" alt="Pré-visualização da imagem" />
+          </div>
+
+          <input type="file" id="fileInput" accept="image/*" style="display: none;" />
+        </div>
+
+
+        <!-- Coluna direita: resultado -->
+        <div class="column-2">
+          <h2>Résultat</h2>
+          <div class="result-card">
+            <div class="result-header">
+              <h3>Sortie de l'API</h3>
+              <div class="result-status" id="statusBadge">Prêt</div>
+            </div>
+
+            <!-- AQUI vai a imagem segmentada -->
+            <div class="result-image" id="resultImageWrapper">
+              <img id="resultImage" alt="Image segmentée" style="display: none;" />
+            </div>
+
+            <pre id="resultBox">
+Envoyez une image pour voir ici les statistiques de la segmentation.
+  </pre>
+
+            <div class="hint">
+              L'API appelée est <code>POST /predict/file</code>.
+              L'image retournée est la version segmentée.
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <script>
+        // Ajuste essa URL se sua API estiver em outro host/porta
+        const API_URL = "http://localhost:8000/api/v1/predict/file";
+
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("fileInput");
+        const uploadButton = document.getElementById("uploadButton");
+        const dropzonePreview = document.getElementById("dropzonePreview");
+        const previewImage = document.getElementById("previewImage");
+        const resultBox = document.getElementById("resultBox");
+        const statusBadge = document.getElementById("statusBadge");
+        const resultImage = document.getElementById("resultImage");
+
+        function setStatus(text, type = "idle") {
+          statusBadge.textContent = text;
+          if (type === "loading") {
+            statusBadge.style.background = "#1f2937";
+            statusBadge.style.color = "#facc15";
+          } else if (type === "error") {
+            statusBadge.style.background = "#7f1d1d";
+            statusBadge.style.color = "#fecaca";
+          } else {
+            statusBadge.style.background = "#111827";
+            statusBadge.style.color = "#a5b4fc";
+          }
+        }
+
+        function showPreview(file) {
+          const reader = new FileReader();
+          reader.onload = e => {
+            previewImage.src = e.target.result;
+            dropzonePreview.style.display = "block";
+            dropzone.classList.add("has-image"); // marca que já tem imagem
+          };
+          reader.readAsDataURL(file);
+        }
+
+
+
+        async function sendToApi(file) {
+          const formData = new FormData();
+          formData.append("file", file);
+
+          setStatus("Traitement...", "loading");
+          resultBox.textContent = "Appel de l'API...";
+
+          try {
+            const response = await fetch(API_URL, {
+              method: "POST",
+              body: formData
+            });
+
+            // Se deu erro, tentamos ler a mensagem de erro como JSON ou texto
+            if (!response.ok) {
+              let errorMessage = "Erreur lors de l'appel à l'API";
+              try {
+                const data = await response.json();
+                errorMessage = data.detail || JSON.stringify(data);
+              } catch (e) {
+                const text = await response.text();
+                if (text) errorMessage = text;
+              }
+              throw new Error(errorMessage);
+            }
+
+            // (1) Lê os HEADERS com as estatísticas
+            const containsTrash = response.headers.get("X-Contains-Trash");
+            const trashRatio = response.headers.get("X-Trash-Ratio");
+            const meanProb = response.headers.get("X-Mean-Trash-Prob");
+
+            const stats = {
+              contains_trash: containsTrash === "True" || containsTrash === "true",
+              trash_pixel_ratio: trashRatio ? parseFloat(trashRatio) : null,
+              mean_trash_probability: meanProb ? parseFloat(meanProb) : null,
+            };
+
+            // Mostra as stats em texto
+            resultBox.textContent = JSON.stringify(stats, null, 2);
+
+            // (2) Lê o corpo como BLOB (imagem) e cria uma URL temporária
+            const blob = await response.blob();
+            const imageUrl = URL.createObjectURL(blob);
+
+            // (3) Atribui a URL ao <img> de resultado e mostra
+            resultImage.src = imageUrl;
+            resultImage.style.display = "block";
+
+            setStatus("Succès");
+          } catch (err) {
+            resultBox.textContent = "Erreur: " + err.message;
+            setStatus("Erreur", "error");
+            resultImage.style.display = "none"; // esconde a imagem em caso de erro
+          }
+        }
+
+
+        function handleImageFile(file) {
+          if (!file || !file.type.startsWith("image/")) {
+            alert("Veuillez sélectionner un fichier image.");
+            return;
+          }
+          showPreview(file);
+          sendToApi(file);
+        }
+
+        // Clique na área para abrir o input
+        // Clique na área geral abre o seletor (continua funcionando)
+        dropzone.addEventListener("click", () => fileInput.click());
+        uploadButton.addEventListener("click", (e) => {
+          e.stopPropagation(); // pra não duplicar evento
+          fileInput.click();
+        });
+
+        // Mudança de arquivo
+        fileInput.addEventListener("change", (e) => {
+          const file = e.target.files[0];
+          handleImageFile(file);
+        });
+
+        // Colar imagem com Ctrl+V
+        window.addEventListener("paste", (event) => {
+          const items = event.clipboardData?.items;
+          if (!items) return;
+
+          for (const item of items) {
+            if (item.type.startsWith("image/")) {
+              const file = item.getAsFile();
+              handleImageFile(file);
+              event.preventDefault();
+              break;
+            }
+          }
+        });
+      </script>
+    </div>
+</body>
+
+</html>
