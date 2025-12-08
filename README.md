@@ -16,16 +16,16 @@ A minimal web frontend is included under `static/` to make it easy to test the A
 
 ## 2. Features
 
-- 🔹 **UNet-based segmentation** loaded from a TorchScript model (`model_unet.pt`).
-- 🔹 **FastAPI backend** with CORS enabled for local development.
-- 🔹 **Image upload** via `multipart/form-data` (`POST /api/v1/predict/file`).
-- 🔹 **Base64 JSON endpoint** (`POST /api/v1/predict/base64`).
-- 🔹 **Annotated output image**:
+- **UNet-based segmentation** loaded from a TorchScript model (`model_unet.pt`).
+- **FastAPI backend** with CORS enabled for local development.
+- **Image upload** via `multipart/form-data` (`POST /api/v1/predict/file`).
+- **Base64 JSON endpoint** (`POST /api/v1/predict/base64`).
+- **Annotated output image**:
   - Original image with segmentation contours drawn in green.
-- 🔹 **Segmentation statistics** returned as:
+- **Segmentation statistics** returned as:
   - HTTP headers (for file endpoint), or
   - JSON payload (for base64 endpoint).
-- 🔹 Modular project structure, ready for future versions (e.g. webcam capture in v2).
+- Modular project structure, ready for future versions (e.g. webcam capture in v2).
 
 ---
 
@@ -63,16 +63,7 @@ A minimal web frontend is included under `static/` to make it easy to test the A
 - Virtual environment (optional but recommended)
 - `model_unet.pt` (TorchScript UNet model) placed at the project root
 
-Python dependencies are listed in `requirements.txt` and include, for example:
-
-- `fastapi`
-- `uvicorn`
-- `torch`
-- `torchvision`
-- `numpy`
-- `opencv-python`
-- `Pillow`
-- `python-multipart`
+Python dependencies are listed in `requirements.txt`.
 
 ---
 
@@ -242,7 +233,7 @@ Project team – Trash Segmentation API
 | Role        | Name                                         |
 |-------------|----------------------------------------------|
 | Student     | [Fernando COSTA LASMAR](https://www.linkedin.com/in/fernando-costa-lasmar/)                    |
-| Student     | [Flávio ROSIM DE SOUZA](https://www.linkedin.com/in/flávio-rosim-de-sousa/)                               |
+| Student     | [Flávio ROSIM DE SOUSA](https://www.linkedin.com/in/flávio-rosim-de-sousa/)                               |
 | Student     | [Matheus SISTON GALDINO](https://www.linkedin.com/in/matheussistongaldino/)                               |
 
 ---
