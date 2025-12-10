@@ -16,6 +16,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,6 +31,10 @@ def root():
     """Serve the minimal demo frontend."""
     return FileResponse(STATIC_DIR / "index.html")
 
+@app.get("/v2/realtime", include_in_schema=False)
+def v2_root():
+    # webcam UI
+    return FileResponse(STATIC_DIR / "index_realtime.html")
 
 # Include v1 API routes
 app.include_router(v1_router)

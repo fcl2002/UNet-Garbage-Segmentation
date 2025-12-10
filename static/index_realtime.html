@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Trash Segmentation – Single View Real-time</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(135deg, #111827, #48aba1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .center-wrapper {
+      width: 100%;
+      max-width: 900px;
+      padding: 24px;
+    }
+
+    .page-title {
+      text-align: center;
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: #ffffff;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 24px 28px;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 24px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: #111827;
+      color: #a5b4fc;
+    }
+
+    .subtitle {
+      color: #666;
+      font-size: 14px;
+      margin: 0 0 8px;
+    }
+
+    .image-box {
+      border-radius: 18px;
+      background: #020617;
+      height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #resultImage {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+
+    .placeholder {
+      color: #9ca3af;
+      font-size: 14px;
+      text-align: center;
+      padding: 16px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: none;
+      background: #111827;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .btn-secondary {
+      background: #4b5563;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #9ca3af;
+      margin: 0;
+    }
+
+    pre {
+      margin: 0;
+      margin-top: 8px;
+      font-size: 12px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 140px;
+      overflow-y: auto;
+      background: #020617;
+      color: #e5e7eb;
+      border-radius: 12px;
+      padding: 10px 12px;
+    }
+
+    /* hidden elements */
+    #webcamVideo,
+    #webcamCanvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="center-wrapper">
+    <h1 class="page-title">Trash Segmentation – Real-time (Single View)</h1>
+
+    <div class="card">
+      <div class="header-row">
+        <h2>Segmented webcam view</h2>
+        <span class="status-badge" id="statusBadge">Idle</span>
+      </div>
+
+      <p class="subtitle">
+        Allow webcam access and the model will continuously process frames and display the segmented result here.
+      </p>
+
+      <div class="image-box">
+        <img id="resultImage" alt="Segmented output" />
+        <div class="placeholder" id="placeholder">
+          Waiting for webcam… Click <strong>Start</strong> to begin real-time segmentation.
+        </div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" type="button" id="startWebcamButton">
+          🎥 Start
+        </button>
+        <button class="btn btn-secondary" type="button" id="stopWebcamButton">
+          ⏹ Stop
+        </button>
+      </div>
+
+      <p class="hint">
+        Frames are downscaled and sent periodically to <code>POST /api/v1/predict/file</code>.  
+        The returned segmented image replaces the view above in pseudo real-time.
+      </p>
+
+      <pre id="resultBox">
+Statistics will appear here after the first frame is processed.
+      </pre>
+
+      <!-- hidden video + canvas used to capture frames -->
+      <video id="webcamVideo" autoplay playsinline></video>
+      <canvas id="webcamCanvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = `${window.location.origin}/api/v1/predict/file`;
+
+    const webcamVideo  = document.getElementById("webcamVideo");
+    const webcamCanvas = document.getElementById("webcamCanvas");
+    const resultImage  = document.getElementById("resultImage");
+    const resultBox    = document.getElementById("resultBox");
+    const placeholder  = document.getElementById("placeholder");
+    const statusBadge  = document.getElementById("statusBadge");
+
+    const startButton  = document.getElementById("startWebcamButton");
+    const stopButton   = document.getElementById("stopWebcamButton");
+
+    let webcamStream   = null;
+    let isRunning      = false;
+    let isProcessing   = false;
+    let loopIntervalId = null;
+
+    function setStatus(text, type = "idle") {
+      statusBadge.textContent = text;
+      if (type === "loading") {
+        statusBadge.style.background = "#1f2937";
+        statusBadge.style.color = "#facc15";
+      } else if (type === "error") {
+        statusBadge.style.background = "#7f1d1d";
+        statusBadge.style.color = "#fecaca";
+      } else {
+        statusBadge.style.background = "#111827";
+        statusBadge.style.color = "#a5b4fc";
+      }
+    }
+
+    async function startWebcam() {
+      if (isRunning) return;
+
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        webcamVideo.srcObject = webcamStream;
+
+        isRunning = true;
+        setStatus("Running");
+        placeholder.style.display = "none";
+        resultBox.textContent = "Streaming frames to the API...";
+
+        startProcessingLoop();
+      } catch (err) {
+        alert("Unable to access webcam: " + err.message);
+        setStatus("Webcam error", "error");
+      }
+    }
+
+    function stopWebcam() {
+      isRunning = false;
+
+      if (loopIntervalId) {
+        clearInterval(loopIntervalId);
+        loopIntervalId = null;
+      }
+
+      if (webcamStream) {
+        webcamStream.getTracks().forEach(t => t.stop());
+        webcamStream = null;
+      }
+
+      setStatus("Idle");
+      resultBox.textContent = "Webcam stopped.";
+    }
+
+    function startProcessingLoop() {
+      const FPS = 120; // controle de "tempo real" aqui
+      const intervalMs = 1000 / FPS;
+
+      if (loopIntervalId) {
+        clearInterval(loopIntervalId);
+      }
+
+      loopIntervalId = setInterval(() => {
+        if (!isRunning || !webcamStream) return;
+        if (isProcessing) return;
+
+        processCurrentFrame();
+      }, intervalMs);
+    }
+
+    async function processCurrentFrame() {
+      isProcessing = true;
+
+      const videoWidth  = webcamVideo.videoWidth;
+      const videoHeight = webcamVideo.videoHeight;
+      if (!videoWidth || !videoHeight) {
+        isProcessing = false;
+        return;
+      }
+
+      // downscale for performance
+      const targetWidth  = 320;
+      const targetHeight = Math.round(videoHeight * (targetWidth / videoWidth));
+
+      webcamCanvas.width  = targetWidth;
+      webcamCanvas.height = targetHeight;
+
+      const ctx = webcamCanvas.getContext("2d");
+      ctx.drawImage(webcamVideo, 0, 0, targetWidth, targetHeight);
+
+      webcamCanvas.toBlob(async (blob) => {
+        if (!blob) {
+          isProcessing = false;
+          return;
+        }
+
+        const file = new File([blob], "frame.jpg", { type: "image/jpeg" });
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+          setStatus("Processing...", "loading");
+
+          const response = await fetch(API_URL, {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!response.ok) {
+            let msg = "Error while calling the API";
+            try {
+              const data = await response.json();
+              msg = data.detail || JSON.stringify(data);
+            } catch (_) {
+              const txt = await response.text();
+              if (txt) msg = txt;
+            }
+            console.error(msg);
+            setStatus("Error", "error");
+            isProcessing = false;
+            return;
+          }
+
+          const containsObj = response.headers.get("X-Contains-Object");
+          const maskRatio   = response.headers.get("X-Mask-Ratio");
+          const meanProb    = response.headers.get("X-Mean-Prob");
+
+          const stats = {
+            contains_object: containsObj === "True" || containsObj === "true",
+            mask_pixel_ratio: maskRatio ? parseFloat(maskRatio) : null,
+            mean_probability: meanProb ? parseFloat(meanProb) : null,
+          };
+          resultBox.textContent = JSON.stringify(stats, null, 2);
+
+          const resultBlob = await response.blob();
+          const url = URL.createObjectURL(resultBlob);
+          resultImage.src = url;
+          resultImage.style.display = "block";
+
+          setStatus("Running");
+        } catch (err) {
+          console.error("Request error:", err);
+          setStatus("Error", "error");
+        } finally {
+          isProcessing = false;
+        }
+      }, "image/jpeg", 0.8);
+    }
+
+    startButton.addEventListener("click", startWebcam);
+    stopButton.addEventListener("click", stopWebcam);
+
+    window.addEventListener("beforeunload", () => {
+      stopWebcam();
+    });
+  </script>
+</body>
+</html>
