@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 
 @router.post(
     "/predict/file",
-    responses={200: {"content": {"image/png": {}}, "description": "Annotated PNG with green contours"}},
+    responses={200: {"content": {"image/png": {}}, "description": "Annotated PNG with class-colored overlay"}},
     summary="Segment an image sent as file",
 )
 async def predict_from_file(file: UploadFile = File(...)):
@@ -44,10 +44,14 @@ async def predict_from_file(file: UploadFile = File(...)):
 
     # Expose simple stats in HTTP headers
     headers = {
-        "X-Contains-Object": str(stats["contains_object"]),
-        "X-Mask-Ratio": str(stats["mask_pixel_ratio"]),
-        "X-Mean-Prob": str(stats["mean_probability"]),
-    }
+    "X-Contains-Object": str(stats["contains_object"]),
+    "X-Total-Object-Ratio": str(stats["total_object_ratio"]),
+    "X-Mean-Confidence": str(stats["mean_confidence"]),
+    "X-Dominant-Class-Id": "" if stats["dominant_object_class_id"] is None else str(stats["dominant_object_class_id"]),
+    "X-Dominant-Class-Name": "" if stats["dominant_object_class_name"] is None else str(stats["dominant_object_class_name"]),
+    # string curta para não estourar header
+    "X-Class-Ratios": ";".join([f"{k}={v:.4f}" for k, v in stats["class_pixel_ratios"].items()]),
+}
 
     return StreamingResponse(buf, media_type="image/png", headers=headers)
 

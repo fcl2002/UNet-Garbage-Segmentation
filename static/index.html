@@ -371,14 +371,21 @@ Envoyez une image pour voir ici les statistiques de la segmentation.
             }
 
             // (1) Lê os HEADERS com as estatísticas
-            const containsTrash = response.headers.get("X-Contains-Trash");
-            const trashRatio = response.headers.get("X-Trash-Ratio");
-            const meanProb = response.headers.get("X-Mean-Trash-Prob");
+            // (1) Lê os HEADERS com as estatísticas (igual ao backend)
+            const containsObj = response.headers.get("X-Contains-Object");
+            const ratio = response.headers.get("X-Total-Object-Ratio");
+            const meanConf = response.headers.get("X-Mean-Confidence");
+            const domId = response.headers.get("X-Dominant-Class-Id");
+            const domName = response.headers.get("X-Dominant-Class-Name");
+            const classRatios = response.headers.get("X-Class-Ratios");
 
             const stats = {
-              contains_trash: containsTrash === "True" || containsTrash === "true",
-              trash_pixel_ratio: trashRatio ? parseFloat(trashRatio) : null,
-              mean_trash_probability: meanProb ? parseFloat(meanProb) : null,
+              contains_object: containsObj === "True" || containsObj === "true",
+              total_object_ratio: ratio ? parseFloat(ratio) : null,
+              mean_confidence: meanConf ? parseFloat(meanConf) : null,
+              dominant_class_id: domId || null,
+              dominant_class_name: domName || null,
+              class_ratios: classRatios || null,
             };
 
             // Mostra as stats em texto

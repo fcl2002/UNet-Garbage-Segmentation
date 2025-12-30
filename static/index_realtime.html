@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <title>Trash Segmentation – Single View Real-time</title>
@@ -147,6 +148,7 @@
     }
   </style>
 </head>
+
 <body>
   <div class="center-wrapper">
     <h1 class="page-title">Trash Segmentation – Real-time (Single View)</h1>
@@ -178,7 +180,7 @@
       </div>
 
       <p class="hint">
-        Frames are downscaled and sent periodically to <code>POST /api/v1/predict/file</code>.  
+        Frames are downscaled and sent periodically to <code>POST /api/v1/predict/file</code>.
         The returned segmented image replaces the view above in pseudo real-time.
       </p>
 
@@ -195,19 +197,19 @@ Statistics will appear here after the first frame is processed.
   <script>
     const API_URL = `${window.location.origin}/api/v1/predict/file`;
 
-    const webcamVideo  = document.getElementById("webcamVideo");
+    const webcamVideo = document.getElementById("webcamVideo");
     const webcamCanvas = document.getElementById("webcamCanvas");
-    const resultImage  = document.getElementById("resultImage");
-    const resultBox    = document.getElementById("resultBox");
-    const placeholder  = document.getElementById("placeholder");
-    const statusBadge  = document.getElementById("statusBadge");
+    const resultImage = document.getElementById("resultImage");
+    const resultBox = document.getElementById("resultBox");
+    const placeholder = document.getElementById("placeholder");
+    const statusBadge = document.getElementById("statusBadge");
 
-    const startButton  = document.getElementById("startWebcamButton");
-    const stopButton   = document.getElementById("stopWebcamButton");
+    const startButton = document.getElementById("startWebcamButton");
+    const stopButton = document.getElementById("stopWebcamButton");
 
-    let webcamStream   = null;
-    let isRunning      = false;
-    let isProcessing   = false;
+    let webcamStream = null;
+    let isRunning = false;
+    let isProcessing = false;
     let loopIntervalId = null;
 
     function setStatus(text, type = "idle") {
@@ -279,7 +281,7 @@ Statistics will appear here after the first frame is processed.
     async function processCurrentFrame() {
       isProcessing = true;
 
-      const videoWidth  = webcamVideo.videoWidth;
+      const videoWidth = webcamVideo.videoWidth;
       const videoHeight = webcamVideo.videoHeight;
       if (!videoWidth || !videoHeight) {
         isProcessing = false;
@@ -287,10 +289,10 @@ Statistics will appear here after the first frame is processed.
       }
 
       // downscale for performance
-      const targetWidth  = 320;
+      const targetWidth = 320;
       const targetHeight = Math.round(videoHeight * (targetWidth / videoWidth));
 
-      webcamCanvas.width  = targetWidth;
+      webcamCanvas.width = targetWidth;
       webcamCanvas.height = targetHeight;
 
       const ctx = webcamCanvas.getContext("2d");
@@ -330,14 +332,15 @@ Statistics will appear here after the first frame is processed.
           }
 
           const containsObj = response.headers.get("X-Contains-Object");
-          const maskRatio   = response.headers.get("X-Mask-Ratio");
-          const meanProb    = response.headers.get("X-Mean-Prob");
+          const ratio = response.headers.get("X-Total-Object-Ratio");
+          const meanConf = response.headers.get("X-Mean-Confidence");
 
           const stats = {
             contains_object: containsObj === "True" || containsObj === "true",
-            mask_pixel_ratio: maskRatio ? parseFloat(maskRatio) : null,
-            mean_probability: meanProb ? parseFloat(meanProb) : null,
+            total_object_ratio: ratio ? parseFloat(ratio) : null,
+            mean_confidence: meanConf ? parseFloat(meanConf) : null,
           };
+
           resultBox.textContent = JSON.stringify(stats, null, 2);
 
           const resultBlob = await response.blob();
@@ -363,4 +366,5 @@ Statistics will appear here after the first frame is processed.
     });
   </script>
 </body>
+
 </html>
