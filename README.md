@@ -188,7 +188,7 @@ Segment an image sent as a **base64-encoded string** in JSON and return:
   - `GET /` or `GET /static/index.html` (upload/paste image demo)
   - `GET /static/index_realtime.html` (webcam pseudo real-time demo)
 
-### v2 – Planned (optional)
+### v2 – Planned
 
 Possible future improvements:
 
