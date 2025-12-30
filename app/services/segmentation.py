@@ -41,7 +41,7 @@ BOX_THICKNESS = 2
 FONT_SCALE = 0.55
 FONT_THICKNESS = 2
 
-OVERLAY_ALPHA = 0.22
+OVERLAY_ALPHA = 0.35
 
 _model: Optional[torch.jit.ScriptModule] = None
 
@@ -235,8 +235,20 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
         if dominant_object_class_id is not None:
             dominant_object_class_name = CLASS_NAMES.get(dominant_object_class_id)
 
-    # Desenhar SOMENTE bbox + label (sem contorno / sem overlay)
+    # --- overlay sutil por classe (estilo YOLO) ---
     annotated = image_bgr.copy()
+    overlay = annotated.copy()
+
+    for cls_id in (1, 2, 3, 4):
+        mask = (pred_full == cls_id)
+        if mask.any():
+            overlay[mask] = CLASS_COLORS_BGR[cls_id]
+
+    # mistura overlay com a imagem original (sutil)
+    annotated = cv2.addWeighted(overlay, OVERLAY_ALPHA, annotated, 1.0 - OVERLAY_ALPHA, 0.0)
+
+    # Desenhar SOMENTE bbox + label (sem contorno / sem overlay)
+    # annotated = image_bgr.copy()
     min_area = max(20, int(MIN_AREA_RATIO * total_pixels))
 
     for cls_id in (1, 2, 3, 4):
