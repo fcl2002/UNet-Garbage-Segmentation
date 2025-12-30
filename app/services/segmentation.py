@@ -38,8 +38,8 @@ MIN_CONFIDENCE = 0.35       # confiança média do componente (softmax)
 
 # Estilo da bbox/label
 BOX_THICKNESS = 2
-FONT_SCALE = 0.55
-FONT_THICKNESS = 2
+FONT_SCALE = 1
+FONT_THICKNESS = 3
 
 OVERLAY_ALPHA = 0.35
 
@@ -258,7 +258,7 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
 
         comps = _extract_components(cls_mask_01, prob_full.get(cls_id), min_area=min_area)
         color = CLASS_COLORS_BGR.get(cls_id, (255, 0, 0))
-        label_text = CLASS_NAMES.get(cls_id, str(cls_id))
+        base_label = CLASS_NAMES.get(cls_id, str(cls_id))
 
         for comp in comps:
             score = comp["score"]
@@ -267,8 +267,11 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
 
             x1, y1, x2, y2 = comp["bbox"]
 
+            # label com probabilidade (duas casas)
+            label = base_label if score is None else f"{base_label} {score:.2f}"
+
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness=BOX_THICKNESS)
-            _draw_yolo_style_label(annotated, x1, y1, label_text, color)
+            _draw_yolo_style_label(annotated, x1, y1, label, color)
 
     stats: Dict[str, Any] = {
         "contains_object": bool(contains_object),
