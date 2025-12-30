@@ -85,7 +85,7 @@
     #resultImage {
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: contain; /* não corta; se preferir, mude pra cover */
       display: none;
     }
 
@@ -100,6 +100,7 @@
       display: flex;
       gap: 12px;
       margin-top: 4px;
+      flex-wrap: wrap;
     }
 
     .btn {
@@ -124,21 +125,6 @@
       font-size: 12px;
       color: #9ca3af;
       margin: 0;
-    }
-
-    pre {
-      margin: 0;
-      margin-top: 8px;
-      font-size: 12px;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      word-break: break-word;
-      max-height: 140px;
-      overflow-y: auto;
-      background: #020617;
-      color: #e5e7eb;
-      border-radius: 12px;
-      padding: 10px 12px;
     }
 
     /* hidden elements */
@@ -171,22 +157,14 @@
       </div>
 
       <div class="controls">
-        <button class="btn" type="button" id="startWebcamButton">
-          🎥 Start
-        </button>
-        <button class="btn btn-secondary" type="button" id="stopWebcamButton">
-          ⏹ Stop
-        </button>
+        <button class="btn" type="button" id="startWebcamButton">🎥 Start</button>
+        <button class="btn btn-secondary" type="button" id="stopWebcamButton">⏹ Stop</button>
       </div>
 
       <p class="hint">
         Frames are downscaled and sent periodically to <code>POST /api/v1/predict/file</code>.
         The returned segmented image replaces the view above in pseudo real-time.
       </p>
-
-      <pre id="resultBox">
-Statistics will appear here after the first frame is processed.
-      </pre>
 
       <!-- hidden video + canvas used to capture frames -->
       <video id="webcamVideo" autoplay playsinline></video>
@@ -200,7 +178,6 @@ Statistics will appear here after the first frame is processed.
     const webcamVideo = document.getElementById("webcamVideo");
     const webcamCanvas = document.getElementById("webcamCanvas");
     const resultImage = document.getElementById("resultImage");
-    const resultBox = document.getElementById("resultBox");
     const placeholder = document.getElementById("placeholder");
     const statusBadge = document.getElementById("statusBadge");
 
@@ -210,7 +187,15 @@ Statistics will appear here after the first frame is processed.
     let webcamStream = null;
     let isRunning = false;
     let isProcessing = false;
-    let loopIntervalId = null;
+    let loopTimerId = null;
+
+    // ======== Ajustes principais ========
+    let TARGET_FPS = 12;          // alvo (o loop adapta pro que a API aguenta)
+    const targetWidth = 320;      // 320 é ok; se quiser mais leve, use 256
+    const jpegQuality = 0.70;     // 0.6~0.8 (quanto menor, mais rápido)
+    // ===================================
+
+    const frameTimes = [];
 
     function setStatus(text, type = "idle") {
       statusBadge.textContent = text;
@@ -236,7 +221,6 @@ Statistics will appear here after the first frame is processed.
         isRunning = true;
         setStatus("Running");
         placeholder.style.display = "none";
-        resultBox.textContent = "Streaming frames to the API...";
 
         startProcessingLoop();
       } catch (err) {
@@ -248,9 +232,9 @@ Statistics will appear here after the first frame is processed.
     function stopWebcam() {
       isRunning = false;
 
-      if (loopIntervalId) {
-        clearInterval(loopIntervalId);
-        loopIntervalId = null;
+      if (loopTimerId) {
+        clearTimeout(loopTimerId);
+        loopTimerId = null;
       }
 
       if (webcamStream) {
@@ -259,103 +243,104 @@ Statistics will appear here after the first frame is processed.
       }
 
       setStatus("Idle");
-      resultBox.textContent = "Webcam stopped.";
+      resultImage.style.display = "none";
+      placeholder.style.display = "block";
     }
 
     function startProcessingLoop() {
-      const FPS = 120; // controle de "tempo real" aqui
-      const intervalMs = 1000 / FPS;
+      if (loopTimerId) clearTimeout(loopTimerId);
 
-      if (loopIntervalId) {
-        clearInterval(loopIntervalId);
-      }
-
-      loopIntervalId = setInterval(() => {
+      const tick = async () => {
         if (!isRunning || !webcamStream) return;
-        if (isProcessing) return;
 
-        processCurrentFrame();
-      }, intervalMs);
+        const start = performance.now();
+        await processCurrentFrame();
+        const end = performance.now();
+
+        const dt = end - start;
+        if (dt > 0) {
+          frameTimes.push(dt);
+          if (frameTimes.length > 30) frameTimes.shift();
+        }
+
+        const mean = frameTimes.length
+          ? frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
+          : dt;
+
+        // FPS máximo possível pelo tempo médio do ciclo
+        const maxPossibleFps = mean > 0 ? (1000 / mean) : TARGET_FPS;
+        const safeFps = Math.max(1, Math.min(TARGET_FPS, maxPossibleFps * 0.9));
+
+        // espera o suficiente pra tentar bater o safeFps sem sobrecarregar
+        const delay = Math.max(0, (1000 / safeFps) - dt);
+
+        loopTimerId = setTimeout(tick, delay);
+      };
+
+      tick();
     }
 
     async function processCurrentFrame() {
+      if (isProcessing) return;
       isProcessing = true;
 
-      const videoWidth = webcamVideo.videoWidth;
-      const videoHeight = webcamVideo.videoHeight;
-      if (!videoWidth || !videoHeight) {
-        isProcessing = false;
-        return;
-      }
+      try {
+        const videoWidth = webcamVideo.videoWidth;
+        const videoHeight = webcamVideo.videoHeight;
+        if (!videoWidth || !videoHeight) return;
 
-      // downscale for performance
-      const targetWidth = 320;
-      const targetHeight = Math.round(videoHeight * (targetWidth / videoWidth));
+        const targetHeight = Math.round(videoHeight * (targetWidth / videoWidth));
 
-      webcamCanvas.width = targetWidth;
-      webcamCanvas.height = targetHeight;
+        webcamCanvas.width = targetWidth;
+        webcamCanvas.height = targetHeight;
 
-      const ctx = webcamCanvas.getContext("2d");
-      ctx.drawImage(webcamVideo, 0, 0, targetWidth, targetHeight);
+        const ctx = webcamCanvas.getContext("2d");
+        ctx.drawImage(webcamVideo, 0, 0, targetWidth, targetHeight);
 
-      webcamCanvas.toBlob(async (blob) => {
-        if (!blob) {
-          isProcessing = false;
-          return;
-        }
+        const blob = await new Promise(resolve => {
+          webcamCanvas.toBlob(resolve, "image/jpeg", jpegQuality);
+        });
+
+        if (!blob) return;
 
         const file = new File([blob], "frame.jpg", { type: "image/jpeg" });
         const formData = new FormData();
         formData.append("file", file);
 
-        try {
-          setStatus("Processing...", "loading");
+        setStatus("Processing...", "loading");
 
-          const response = await fetch(API_URL, {
-            method: "POST",
-            body: formData,
-          });
+        const response = await fetch(API_URL, {
+          method: "POST",
+          body: formData,
+        });
 
-          if (!response.ok) {
-            let msg = "Error while calling the API";
-            try {
-              const data = await response.json();
-              msg = data.detail || JSON.stringify(data);
-            } catch (_) {
-              const txt = await response.text();
-              if (txt) msg = txt;
-            }
-            console.error(msg);
-            setStatus("Error", "error");
-            isProcessing = false;
-            return;
+        if (!response.ok) {
+          let msg = "Error while calling the API";
+          try {
+            const data = await response.json();
+            msg = data.detail || JSON.stringify(data);
+          } catch (_) {
+            const txt = await response.text();
+            if (txt) msg = txt;
           }
-
-          const containsObj = response.headers.get("X-Contains-Object");
-          const ratio = response.headers.get("X-Total-Object-Ratio");
-          const meanConf = response.headers.get("X-Mean-Confidence");
-
-          const stats = {
-            contains_object: containsObj === "True" || containsObj === "true",
-            total_object_ratio: ratio ? parseFloat(ratio) : null,
-            mean_confidence: meanConf ? parseFloat(meanConf) : null,
-          };
-
-          resultBox.textContent = JSON.stringify(stats, null, 2);
-
-          const resultBlob = await response.blob();
-          const url = URL.createObjectURL(resultBlob);
-          resultImage.src = url;
-          resultImage.style.display = "block";
-
-          setStatus("Running");
-        } catch (err) {
-          console.error("Request error:", err);
+          console.error(msg);
           setStatus("Error", "error");
-        } finally {
-          isProcessing = false;
+          return;
         }
-      }, "image/jpeg", 0.8);
+
+        const resultBlob = await response.blob();
+        const url = URL.createObjectURL(resultBlob);
+
+        resultImage.src = url;
+        resultImage.style.display = "block";
+
+        setStatus("Running");
+      } catch (err) {
+        console.error("Request error:", err);
+        setStatus("Error", "error");
+      } finally {
+        isProcessing = false;
+      }
     }
 
     startButton.addEventListener("click", startWebcam);

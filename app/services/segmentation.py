@@ -23,7 +23,7 @@ CLASS_NAMES: Dict[int, str] = {
 # Você pode usar suas cores por classe OU deixar tudo azul como YOLO.
 # Aqui vou manter por classe (mais informativo):
 CLASS_COLORS_BGR: Dict[int, Tuple[int, int, int]] = {
-    1: (0, 255, 255),   # plastic (yellow)
+    1: (0, 224, 224),   # plastic (yellow)
     2: (0, 204, 0),     # paper (green)
     3: (0, 0, 255),     # metal (red)
     4: (153, 0, 153),   # others (purple)
@@ -36,10 +36,15 @@ INPUT_SIZE_WH = (256, 256)
 MIN_AREA_RATIO = 0.0008     # área mínima relativa (H*W)
 MIN_CONFIDENCE = 0.35       # confiança média do componente (softmax)
 
-# Estilo da bbox/label
 BOX_THICKNESS = 2
-FONT_SCALE = 2.5
-FONT_THICKNESS = 3
+
+# Real Time bbox/label style
+FONT_SCALE = 0.4
+FONT_THICKNESS = 1
+
+# Static bbox/label style
+# FONT_SCALE = 3
+# FONT_THICKNESS = 3
 
 OVERLAY_ALPHA = 0.35
 
@@ -248,7 +253,6 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
     annotated = cv2.addWeighted(overlay, OVERLAY_ALPHA, annotated, 1.0 - OVERLAY_ALPHA, 0.0)
 
     # Desenhar SOMENTE bbox + label (sem contorno / sem overlay)
-    # annotated = image_bgr.copy()
     min_area = max(20, int(MIN_AREA_RATIO * total_pixels))
 
     for cls_id in (1, 2, 3, 4):
