@@ -38,7 +38,7 @@ MIN_CONFIDENCE = 0.35       # confiança média do componente (softmax)
 
 # Estilo da bbox/label
 BOX_THICKNESS = 2
-FONT_SCALE = 1
+FONT_SCALE = 2.5
 FONT_THICKNESS = 3
 
 OVERLAY_ALPHA = 0.35
