@@ -103,18 +103,18 @@ From the UI you can:
 - Paste an image from the clipboard (`Ctrl+V`),
 - See:
   - the **input image** preview,
-  - the **segmented output image** (with green contours),
   - the **segmentation stats** returned by the API.
 
 The static files are served from `/static`:
 
 ```text
 GET /           -> static/index.html
+GET /           -> static/index_realtime.html
 ```
 
 ---
 
-## 6. API v1
+## 6. API Documentation
 
 All v1 endpoints are grouped under the router in `app/api/v1/image_endpoints.py`.
 
@@ -141,11 +141,7 @@ Segment an image sent as a **file** (multipart/form-data) and return an **annota
 
 - Status: `200 OK`
 - Content-Type: `image/png`
-- Body: annotated image (original image + green contours)
-- HTTP headers include basic stats:
-  - `X-Contains-Object`: `True` / `False`
-  - `X-Mask-Ratio`: float in `[0, 1]` (ratio of pixels inside the mask)
-  - `X-Mean-Prob`: mean predicted probability over the mask
+- Body: annotated image (overlay + bbox + label + probability)
 
 ### 6.2. `POST /api/v1/predict/base64`
 
@@ -168,43 +164,36 @@ Segment an image sent as a **base64-encoded string** in JSON and return:
 }
 ```
 
-### 6.3. Example requests (cURL)
+**Response**
 
-Below are simple examples of how to call the v1 endpoints using `curl`.
-
-**File upload**
-
-```bash
-curl -X POST "http://127.0.0.1:8000/api/v1/predict/file" \
-  -H "Accept: image/png" \
-  -F "file=@path/to/your/image.png" \
-  --output segmented.png
-```
+- JSON:
+- Image_base64: annotqated PNG encoded in base64
+- Stats: same structure returned by the backend service
 
 ## 7. Versioning
 
 ### v1 – Current Version
 
 - Modular project structure:
-  - `core`, `api/v1`, `services`, `schemas/v1`, `utils`, `static`.
-- UNet segmentation service (`segmentation_service.py`) with:
-  - TorchScript model loading (`model_unet.pt`),
-  - Preprocessing with `torchvision.transforms`,
-  - Binary mask generation and contour extraction with OpenCV.
+  - `core`, `api/v1`, `services`, `schemas/v1`, `utils`, `static`
+- Segmentation service (`app/services/segmentation.py`) with:
+  - TorchScript model loading (`model_unet.pt`)
+  - Multi-class inference (5 classes) + post-processing
+  - Subtle per-class overlay + bounding boxes from connected components
+  - Labels with class + probability (2 decimals)
 - API endpoints:
-  - `POST /api/v1/predict/file` (returns annotated PNG + stats in headers),
-  - `POST /api/v1/predict/base64` (returns base64 PNG + stats in JSON).
+  - `POST /api/v1/predict/file` (returns annotated PNG + stats in headers)
+  - `POST /api/v1/predict/base64` (returns base64 PNG + stats in JSON)
 - Frontend:
-  - Simple page (`static/index.html`) for uploading/pasting images and visualizing results.
+  - `GET /` or `GET /static/index.html` (upload/paste image demo)
+  - `GET /static/index_realtime.html` (webcam pseudo real-time demo)
 
-### v2 – Planned
+### v2 – Planned (optional)
 
-Future iterations may include:
+Possible future improvements:
 
-- Webcam capture directly from the browser and automatic submission to the API.
-- Additional visualization options (mask overlay, heatmaps, etc.).
-- Extended statistics (per-class metrics, if multi-class UNet is used).
-- Optional authentication for production deployments.
+- True real-time inference mode (continuous streaming with minimal latency), focused only on real-time operation.
+- Expanded class coverage (increase the number of classes the model can segment/classify).
 
 ---
 
@@ -212,10 +201,12 @@ Future iterations may include:
 
 - The model is loaded once at startup (TorchScript via `torch.jit.load`) and reused for all incoming requests.
 - The device (`CPU` or `CUDA`) is selected automatically in `app/core/config.py` based on `torch.cuda.is_available()`.
-- Image preprocessing is handled with `torchvision.transforms` to match the training configuration (resize, normalization, etc.).
-- Binary masks are generated from model probabilities using a configurable threshold (currently `0.5`).
-- Contours are computed from the binary mask and drawn on the original image using OpenCV (`cv2.findContours`, `cv2.drawContours`).
-- The codebase (comments, docstrings and public API) is written in English to follow common open-source conventions.
+- The inference output is multi-class logits `(1, 5, 256, 256)` with classes:
+  - `0 background`, `1 plastic`, `2 paper`, `3 metal`, `4 others`
+- The API output image includes:
+  - subtle per-class overlay,
+  - bounding boxes computed from connected components,
+  - labels containing class + probability (2 decimals).
 
 ---
 
@@ -235,6 +226,7 @@ Project team – Trash Segmentation API
 | Student     | [Fernando COSTA LASMAR](https://www.linkedin.com/in/fernando-costa-lasmar/)                    |
 | Student     | [Flávio ROSIM DE SOUSA](https://www.linkedin.com/in/flávio-rosim-de-sousa/)                               |
 | Student     | [Matheus SISTON GALDINO](https://www.linkedin.com/in/matheussistongaldino/)                               |
+| Student     | [Yan DING](mailto:dingyan02040608@gmail.com)                                                              |
 
 ---
 
