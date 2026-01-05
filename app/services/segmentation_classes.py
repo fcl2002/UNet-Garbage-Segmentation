@@ -1,4 +1,4 @@
-# app/services/segmentation.py
+# app/services/segmentation_classes.py
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ import numpy as np
 import torch
 from PIL import Image
 
-from app.core.config import MODEL_PATH, DEVICE  # :contentReference[oaicite:5]{index=5}
+from app.core.config import MODEL_PATH, DEVICE
 
-
+# ---------- Labels ----------
+# If you want to keep the original names, replace this dict back.
+# Right now you mapped everything to "trash", which is OK if you only want a single label.
 CLASS_NAMES: Dict[int, str] = {
     0: "background",
     1: "plastic",
@@ -20,8 +22,7 @@ CLASS_NAMES: Dict[int, str] = {
     4: "others",
 }
 
-# Você pode usar suas cores por classe OU deixar tudo azul como YOLO.
-# Aqui vou manter por classe (mais informativo):
+# ---------- Colors (BGR) ----------
 CLASS_COLORS_BGR: Dict[int, Tuple[int, int, int]] = {
     1: (0, 224, 224),   # plastic (yellow)
     2: (0, 204, 0),     # paper (green)
@@ -29,30 +30,28 @@ CLASS_COLORS_BGR: Dict[int, Tuple[int, int, int]] = {
     4: (153, 0, 153),   # others (purple)
 }
 
-# Modelo retorna (1,5,256,256)
-INPUT_SIZE_WH = (256, 256)
+# ---------- Model / Input ----------
+# Model returns (1,5,256,256)
+INPUT_SIZE_WH = (256, 256)  # (W,H)
 
-# Filtros práticos para “não boxear ruído”
-MIN_AREA_RATIO = 0.0008     # área mínima relativa (H*W)
-MIN_CONFIDENCE = 0.35       # confiança média do componente (softmax)
+# IMPORTANT: Must match your training transform (ImageNet normalization)
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)[:, None, None]  # (3,1,1)
+IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)[:, None, None]   # (3,1,1)
 
+# ---------- Filters ----------
+MIN_AREA_RATIO = 0.0008
+MIN_CONFIDENCE = 0.35
+
+# ---------- Drawing ----------
 BOX_THICKNESS = 2
-
-# Real Time bbox/label style
 FONT_SCALE = 0.4
 FONT_THICKNESS = 1
-
-# Static bbox/label style
-# FONT_SCALE = 3
-# FONT_THICKNESS = 3
-
 OVERLAY_ALPHA = 0.35
 
 _model: Optional[torch.jit.ScriptModule] = None
 
 
 def _torch_device() -> torch.device:
-    # DEVICE no seu config é string "cuda"/"cpu" :contentReference[oaicite:6]{index=6}
     if isinstance(DEVICE, torch.device):
         return DEVICE
     return torch.device(str(DEVICE))
@@ -91,14 +90,32 @@ def _bgr_to_pil(img_bgr: np.ndarray) -> Image.Image:
 
 
 def _preprocess(image_bgr: np.ndarray) -> torch.Tensor:
+    """
+    Preprocess must match training:
+      1) resize to (256,256)
+      2) convert BGR->RGB
+      3) scale to [0,1]
+      4) normalize with ImageNet mean/std
+      5) CHW + batch dimension
+    """
     w, h = INPUT_SIZE_WH
     resized = cv2.resize(image_bgr, (w, h), interpolation=cv2.INTER_AREA)
     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
 
     x = rgb.astype(np.float32) / 255.0
-    x = np.transpose(x, (2, 0, 1))  # CHW
-    x = np.expand_dims(x, 0)        # NCHW
+    x = np.transpose(x, (2, 0, 1))  # (3,H,W)
+    x = (x - IMAGENET_MEAN) / IMAGENET_STD
+    x = np.expand_dims(x, 0)        # (1,3,H,W)
+
     return torch.from_numpy(x).to(_torch_device())
+
+
+def _as_tensor(output: Any) -> torch.Tensor:
+    if isinstance(output, torch.Tensor):
+        return output
+    if isinstance(output, (list, tuple)) and len(output) > 0 and isinstance(output[0], torch.Tensor):
+        return output[0]
+    raise TypeError("Model output is not a torch.Tensor.")
 
 
 @torch.inference_mode()
@@ -115,24 +132,28 @@ def _infer(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
     x = _preprocess(image_bgr)
 
-    logits = _model(x)
-    if not isinstance(logits, torch.Tensor):
-        logits = logits[0]
+    logits = _as_tensor(_model(x))
+    if logits.ndim != 4:
+        raise RuntimeError(f"Unexpected model output shape: {tuple(logits.shape)}")
 
-    probs = torch.softmax(logits, dim=1)[0]  # (5,H,W)
-    pred = torch.argmax(probs, dim=0)        # (H,W)
+    # probs: (5,H,W) and pred: (H,W)
+    probs = torch.softmax(logits, dim=1)[0]
+    pred = torch.argmax(probs, dim=0)
 
     return pred.to(torch.uint8).cpu().numpy(), probs.to(torch.float32).cpu().numpy()
 
 
-def _extract_components(bin_mask_01: np.ndarray, prob_map: Optional[np.ndarray], min_area: int) -> List[Dict[str, Any]]:
+def _extract_components(
+    bin_mask_01: np.ndarray,
+    prob_map: Optional[np.ndarray],
+    min_area: int
+) -> List[Dict[str, Any]]:
     """
     bin_mask_01: (H,W) uint8 0/1
-    prob_map:    (H,W) float prob da classe
+    prob_map:    (H,W) float prob of this class (optional)
     """
     mask_u8 = (bin_mask_01.astype(np.uint8) * 255)
 
-    # limpeza leve
     kernel = np.ones((3, 3), np.uint8)
     cleaned = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, kernel, iterations=1)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=1)
@@ -171,7 +192,6 @@ def _draw_yolo_style_label(img: np.ndarray, x1: int, y1: int, text: str, color: 
     box_w = tw + 2 * pad_x
     box_h = th + 2 * pad_y + baseline
 
-    # tenta desenhar acima; se não couber, desenha dentro do bbox
     y_top = y1 - box_h
     if y_top < 0:
         y_top = y1
@@ -194,9 +214,10 @@ def _draw_yolo_style_label(img: np.ndarray, x1: int, y1: int, text: str, color: 
 
 def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
     """
-    Retorna:
-      - annotated PIL (somente bbox + label)
-      - stats dict (mantém seu contrato atual do endpoint)
+    Multi-class segmentation pipeline with ImageNet-normalized input.
+    Returns:
+      - annotated PIL (overlay + bbox + label)
+      - stats dict (keeps the same contract used by your endpoints)
     """
     if not is_model_loaded():
         raise RuntimeError("Model is not loaded on the server.")
@@ -207,22 +228,24 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
 
     pred_small, probs_small = _infer(image_bgr)  # (256,256), (5,256,256)
 
-    # upscale para original
+    # Upscale to original size
     pred_full = cv2.resize(pred_small, (W, H), interpolation=cv2.INTER_NEAREST)
 
-    # prob por classe 1..4 em resolução original
+    # Prob per class 1..4 in original resolution
     prob_full: Dict[int, np.ndarray] = {}
     for cls_id in (1, 2, 3, 4):
         p = probs_small[cls_id]  # (256,256)
         prob_full[cls_id] = cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR)
 
-    # Stats (seu endpoint usa isso nos headers) :contentReference[oaicite:7]{index=7}
+    # Stats
     pixel_counts: Dict[int, int] = {c: int((pred_full == c).sum()) for c in (1, 2, 3, 4)}
-    class_pixel_ratios = {CLASS_NAMES[c]: (pixel_counts[c] / total_pixels if total_pixels else 0.0) for c in (1, 2, 3, 4)}
+    class_pixel_ratios = {
+        CLASS_NAMES[c]: (pixel_counts[c] / total_pixels if total_pixels else 0.0) for c in (1, 2, 3, 4)
+    }
 
-    trash_pixels = int((pred_full != 0).sum())
-    contains_object = trash_pixels > 0
-    total_object_ratio = (trash_pixels / total_pixels) if total_pixels else 0.0
+    obj_pixels = int((pred_full != 0).sum())
+    contains_object = obj_pixels > 0
+    total_object_ratio = (obj_pixels / total_pixels) if total_pixels else 0.0
 
     mean_confidence = 0.0
     if contains_object:
@@ -240,19 +263,18 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
         if dominant_object_class_id is not None:
             dominant_object_class_name = CLASS_NAMES.get(dominant_object_class_id)
 
-    # --- overlay sutil por classe (estilo YOLO) ---
+    # Overlay per class
     annotated = image_bgr.copy()
     overlay = annotated.copy()
 
     for cls_id in (1, 2, 3, 4):
         mask = (pred_full == cls_id)
         if mask.any():
-            overlay[mask] = CLASS_COLORS_BGR[cls_id]
+            overlay[mask] = CLASS_COLORS_BGR.get(cls_id, (255, 0, 0))
 
-    # mistura overlay com a imagem original (sutil)
     annotated = cv2.addWeighted(overlay, OVERLAY_ALPHA, annotated, 1.0 - OVERLAY_ALPHA, 0.0)
 
-    # Desenhar SOMENTE bbox + label (sem contorno / sem overlay)
+    # Draw bboxes + labels
     min_area = max(20, int(MIN_AREA_RATIO * total_pixels))
 
     for cls_id in (1, 2, 3, 4):
@@ -270,8 +292,6 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
                 continue
 
             x1, y1, x2, y2 = comp["bbox"]
-
-            # label com probabilidade (duas casas)
             label = base_label if score is None else f"{base_label} {score:.2f}"
 
             cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness=BOX_THICKNESS)

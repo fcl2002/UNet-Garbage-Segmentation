@@ -6,7 +6,8 @@ from fastapi.responses import StreamingResponse
 
 from app.schemas.v1.image_schemas import ImageBase64Request
 from app.utils.image_io import load_image_from_bytes, load_image_from_base64
-from app.services.segmentation import run_segmentation, is_model_loaded
+# from app.services.segmentation_binaire import run_segmentation, is_model_loaded
+from app.services.segmentation_classes import run_segmentation, is_model_loaded
 
 # All v1 endpoints will be under /api/v1/...
 router = APIRouter(prefix="/api/v1", tags=["v1"])
