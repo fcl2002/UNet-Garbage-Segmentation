@@ -12,8 +12,6 @@ from PIL import Image
 from app.core.config import MODEL_PATH, DEVICE
 
 # ---------- Labels ----------
-# If you want to keep the original names, replace this dict back.
-# Right now you mapped everything to "trash", which is OK if you only want a single label.
 CLASS_NAMES: Dict[int, str] = {
     0: "background",
     1: "plastic",
@@ -44,8 +42,8 @@ MIN_CONFIDENCE = 0.35
 
 # ---------- Drawing ----------
 BOX_THICKNESS = 2
-FONT_SCALE = 0.4
-FONT_THICKNESS = 1
+FONT_SCALE = 1.5
+FONT_THICKNESS = 2
 OVERLAY_ALPHA = 0.35
 
 _model: Optional[torch.jit.ScriptModule] = None
@@ -136,9 +134,8 @@ def _infer(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     if logits.ndim != 4:
         raise RuntimeError(f"Unexpected model output shape: {tuple(logits.shape)}")
 
-    # probs: (5,H,W) and pred: (H,W)
-    probs = torch.softmax(logits, dim=1)[0]
-    pred = torch.argmax(probs, dim=0)
+    probs = torch.softmax(logits, dim=1)[0]  # (5,H,W)
+    pred = torch.argmax(probs, dim=0)        # (H,W)
 
     return pred.to(torch.uint8).cpu().numpy(), probs.to(torch.float32).cpu().numpy()
 
@@ -154,6 +151,7 @@ def _extract_components(
     """
     mask_u8 = (bin_mask_01.astype(np.uint8) * 255)
 
+    # Light cleanup
     kernel = np.ones((3, 3), np.uint8)
     cleaned = cv2.morphologyEx(mask_u8, cv2.MORPH_OPEN, kernel, iterations=1)
     cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_CLOSE, kernel, iterations=1)
@@ -192,6 +190,7 @@ def _draw_yolo_style_label(img: np.ndarray, x1: int, y1: int, text: str, color: 
     box_w = tw + 2 * pad_x
     box_h = th + 2 * pad_y + baseline
 
+    # Try above; if it doesn't fit, draw inside
     y_top = y1 - box_h
     if y_top < 0:
         y_top = y1
@@ -214,10 +213,9 @@ def _draw_yolo_style_label(img: np.ndarray, x1: int, y1: int, text: str, color: 
 
 def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
     """
-    Multi-class segmentation pipeline with ImageNet-normalized input.
-    Returns:
-      - annotated PIL (overlay + bbox + label)
-      - stats dict (keeps the same contract used by your endpoints)
+    Multi-class segmentation, but renders ONLY ONE result:
+      - pick the single component (across all classes) with the highest mean probability
+      - draw overlay + bbox + label ONLY for that best component/class
     """
     if not is_model_loaded():
         raise RuntimeError("Model is not loaded on the server.")
@@ -228,54 +226,20 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
 
     pred_small, probs_small = _infer(image_bgr)  # (256,256), (5,256,256)
 
-    # Upscale to original size
+    # Upscale prediction to original size
     pred_full = cv2.resize(pred_small, (W, H), interpolation=cv2.INTER_NEAREST)
 
-    # Prob per class 1..4 in original resolution
+    # Resize probability maps to original size for classes 1..4
     prob_full: Dict[int, np.ndarray] = {}
     for cls_id in (1, 2, 3, 4):
         p = probs_small[cls_id]  # (256,256)
         prob_full[cls_id] = cv2.resize(p, (W, H), interpolation=cv2.INTER_LINEAR)
 
-    # Stats
-    pixel_counts: Dict[int, int] = {c: int((pred_full == c).sum()) for c in (1, 2, 3, 4)}
-    class_pixel_ratios = {
-        CLASS_NAMES[c]: (pixel_counts[c] / total_pixels if total_pixels else 0.0) for c in (1, 2, 3, 4)
-    }
-
-    obj_pixels = int((pred_full != 0).sum())
-    contains_object = obj_pixels > 0
-    total_object_ratio = (obj_pixels / total_pixels) if total_pixels else 0.0
-
-    mean_confidence = 0.0
-    if contains_object:
-        stack = np.stack([prob_full[c] for c in (1, 2, 3, 4)], axis=0)
-        max_obj_prob = np.max(stack, axis=0)
-        vals = max_obj_prob[pred_full != 0]
-        mean_confidence = float(vals.mean()) if vals.size else 0.0
-
-    dominant_object_class_id: Optional[int] = None
-    dominant_object_class_name: Optional[str] = None
-    if contains_object:
-        dominant_object_class_id = max(pixel_counts.keys(), key=lambda c: pixel_counts[c])
-        if pixel_counts[dominant_object_class_id] == 0:
-            dominant_object_class_id = None
-        if dominant_object_class_id is not None:
-            dominant_object_class_name = CLASS_NAMES.get(dominant_object_class_id)
-
-    # Overlay per class
-    annotated = image_bgr.copy()
-    overlay = annotated.copy()
-
-    for cls_id in (1, 2, 3, 4):
-        mask = (pred_full == cls_id)
-        if mask.any():
-            overlay[mask] = CLASS_COLORS_BGR.get(cls_id, (255, 0, 0))
-
-    annotated = cv2.addWeighted(overlay, OVERLAY_ALPHA, annotated, 1.0 - OVERLAY_ALPHA, 0.0)
-
-    # Draw bboxes + labels
+    # --------- Choose the BEST single component across classes ----------
     min_area = max(20, int(MIN_AREA_RATIO * total_pixels))
+
+    best: Optional[Dict[str, Any]] = None
+    # best = {"cls_id": int, "bbox": (x1,y1,x2,y2), "score": float, "area": int}
 
     for cls_id in (1, 2, 3, 4):
         cls_mask_01 = (pred_full == cls_id).astype(np.uint8)
@@ -283,27 +247,78 @@ def run_segmentation(image: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
             continue
 
         comps = _extract_components(cls_mask_01, prob_full.get(cls_id), min_area=min_area)
-        color = CLASS_COLORS_BGR.get(cls_id, (255, 0, 0))
-        base_label = CLASS_NAMES.get(cls_id, str(cls_id))
 
         for comp in comps:
             score = comp["score"]
-            if score is not None and score < MIN_CONFIDENCE:
+            if score is None:
+                continue
+            if score < MIN_CONFIDENCE:
                 continue
 
-            x1, y1, x2, y2 = comp["bbox"]
-            label = base_label if score is None else f"{base_label} {score:.2f}"
+            candidate = {
+                "cls_id": cls_id,
+                "bbox": comp["bbox"],
+                "score": float(score),
+                "area": int(comp["area"]),
+            }
 
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness=BOX_THICKNESS)
-            _draw_yolo_style_label(annotated, x1, y1, label, color)
+            # Choose highest score; tie-breaker: larger area
+            if best is None:
+                best = candidate
+            else:
+                if candidate["score"] > best["score"]:
+                    best = candidate
+                elif candidate["score"] == best["score"] and candidate["area"] > best["area"]:
+                    best = candidate
 
-    stats: Dict[str, Any] = {
-        "contains_object": bool(contains_object),
+    # --------- Render ONLY the selected class/component ----------
+    annotated = image_bgr.copy()
+
+    if best is None:
+        # No confident component found -> return original image + empty stats
+        stats: Dict[str, Any] = {
+            "contains_object": False,
+            "total_object_ratio": 0.0,
+            "mean_confidence": 0.0,
+            "dominant_object_class_id": None,
+            "dominant_object_class_name": None,
+            "class_pixel_ratios": {},
+        }
+        return _bgr_to_pil(annotated), stats
+
+    cls_id = int(best["cls_id"])
+    x1, y1, x2, y2 = best["bbox"]
+    score = float(best["score"])
+
+    # Overlay only for the selected class pixels
+    overlay = annotated.copy()
+    sel_mask = (pred_full == cls_id)
+    color = CLASS_COLORS_BGR.get(cls_id, (255, 0, 0))
+    overlay[sel_mask] = color
+    annotated = cv2.addWeighted(overlay, OVERLAY_ALPHA, annotated, 1.0 - OVERLAY_ALPHA, 0.0)
+
+    # Draw bbox + label
+    label_name = CLASS_NAMES.get(cls_id, str(cls_id))
+    label = f"{label_name} {score:.2f}"
+    cv2.rectangle(annotated, (x1, y1), (x2, y2), color, thickness=BOX_THICKNESS)
+    _draw_yolo_style_label(annotated, x1, y1, label, color)
+
+    # --------- Stats (now based only on the selected class) ----------
+    selected_pixels = int(sel_mask.sum())
+    total_object_ratio = (selected_pixels / total_pixels) if total_pixels else 0.0
+
+    mean_confidence = 0.0
+    vals = prob_full[cls_id][sel_mask]
+    if vals.size:
+        mean_confidence = float(vals.mean())
+
+    stats = {
+        "contains_object": True,
         "total_object_ratio": float(total_object_ratio),
         "mean_confidence": float(mean_confidence),
-        "dominant_object_class_id": dominant_object_class_id,
-        "dominant_object_class_name": dominant_object_class_name,
-        "class_pixel_ratios": class_pixel_ratios,
+        "dominant_object_class_id": cls_id,
+        "dominant_object_class_name": label_name,
+        "class_pixel_ratios": {label_name: float(total_object_ratio)},
     }
 
     return _bgr_to_pil(annotated), stats
